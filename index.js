@@ -33,28 +33,125 @@ async function run() {
         const surveyCollection = client.db("survey").collection("suurveys");
         const voteCollection = client.db("survey").collection("votes");
         const reportCollection = client.db("survey").collection("reports");
+        const responseCollection = client.db("survey").collection("responses");
+        const surveyorCollection = client.db("survey").collection("surveyors");
+
 
         // user related api
         app.get("/users", async (req, res) => {
             const result = await userCollection.find().toArray();
             res.send(result);
         });
-        app.post("/users", async( req, res ) =>{
+        app.post("/users", async (req, res) => {
             const user = req.body;
-            const query = {email : user.email};
+            const query = { email: user.email };
             const exitUser = await userCollection.findOne(query);
             if (exitUser) {
-                return res.send({massage: " User Already Exists", insertedId: null})
-            }  
+                return res.send({ massage: " User Already Exists", insertedId: null })
+            }
             const result = await userCollection.insertOne(user);
             res.send(result);
         });
-        app.delete("/users/:id", async(req, res) =>{
+        //admin
+        app.patch("/users/admin/:id", async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    role: 'admin'
+                }
+            }
+            const result = await userCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        });
+        // surveyor
+        app.patch("/users/surveyor/:id", async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    role: 'surveyor'
+                }
+            }
+            const result = await userCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        });
+        app.delete("/users/:id", async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const result = await userCollection.deleteOne(query);
             res.send(result);
-        })
+        });
+        // Get surveys created by the currently logged-in user
+        app.get("/surveys/user/:userId", async (req, res) => {
+            const userId = req.params.userId;
+            const surveys = await surveyCollection.find({ createdBy: userId }).toArray(); 
+            res.send(surveys);
+        });
+
+        // Get responses for a specific survey
+        app.get("/survey-responses/:surveyId", async (req, res) => {
+            const surveyId = req.params.surveyId;
+            const responses = await responseCollection.find({ surveyId: surveyId }).toArray();
+            res.send(responses);
+        });
+        app.get("/surveyors/user/:userId", async (req, res) => {
+            const userId = req.params.userId;
+            console.log("Received userId:", userId); // Check if the userId is received correctly
+        
+            try {
+                const surveys = await surveyorCollection.find({ createdBy: userId }).toArray();
+                console.log("Fetched surveys:", surveys); // Log fetched data
+                res.send(surveys);
+            } catch (error) {
+                console.error("Error fetching surveys:", error);
+                res.status(500).send({ error: "Internal Server Error" });
+            }
+        });
+        // surveyor relateds
+        app.get('/surveyors', async (req, res) => {
+            try {
+                const surveyors = await surveyorCollection.find().toArray();
+                console.log("Fetched surveyors:", surveyors); // Log fetched surveyors
+                res.send(surveyors);
+            } catch (error) {
+                console.error("Error fetching surveyors:", error);
+                res.status(500).send({ error: "Internal Server Error" });
+            }
+        });
+        
+        app.post('/surveyors', async (req, res) => {
+            const { city, title, description, options, category, deadline, createdBy } = req.body;
+            const newSurvey = {
+                city,
+                title,
+                description,
+                options,
+                category,
+                deadline,
+                createdBy,
+                status: 'publish',
+                timestamp: new Date().toISOString(),
+            };
+            try {
+                const result = await surveyorCollection.insertOne(newSurvey);
+                res.send(result);
+            } catch (error) {
+                console.error("Error inserting surveyor:", error);
+                res.status(500).send({ error: "Internal Server Error" });
+            }
+        });
+        app.delete("/surveyors/:id", async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await surveyorCollection.deleteOne(query);
+            res.send(result);
+        });
+        
+        
+        
+        
+
 
 
         //Apis
@@ -73,35 +170,31 @@ async function run() {
         //vote collection
         app.get("/votes", async (req, res) => {
             const email = req.query.email;
-            const query = {email : email};
+            const query = { email: email };
             const result = await voteCollection.find(query).toArray();
             res.send(result);
         });
-        app.post("/votes", async(req, res) => {
+        app.post("/votes", async (req, res) => {
             const voters = req.body;
             const result = await voteCollection.insertOne(voters);
             res.send(result);
         })
         //report coolection
-        app.get("/reports", async (req, res) => { 
-            const email = req.query.email;    
-            const query = {email : email};       
-            const reports = await reportCollection.find(query).toArray();  
-            res.send(reports); 
+        app.get("/reports", async (req, res) => {
+            const email = req.query.email;
+            const query = { email: email };
+            const reports = await reportCollection.find(query).toArray();
+            res.send(reports);
         });
         app.post("/reports", async (req, res) => {
             const reportData = req.body;
             const result = await reportCollection.insertOne(reportData);  // `reportCollection` is your MongoDB collection for reports
-            res.send(result);         
+            res.send(result);
         });
-
-
-
-
         // Endpoint for fetching user surveys
         app.get("/user-surveys/:userId", async (req, res) => {
             const userId = req.params.userId;
-            const userSurveys = await surveyResponsesCollection.find({ userId }).toArray();
+            const userSurveys = await  responseCollection.find({ userId }).toArray();
             res.send(userSurveys);
         });
 
@@ -111,7 +204,7 @@ async function run() {
             const { userId, selectedAnswers } = req.body;
 
             // Assuming 'surveyResponses' is the collection where responses are stored
-            await surveyResponsesCollection.insertOne({
+            await responseCollection.insertOne({
                 surveyId,
                 userId,
                 selectedAnswers,
@@ -121,7 +214,7 @@ async function run() {
             res.status(200).send({ message: "Survey submitted successfully" });
         });
 
-        
+
 
 
 
