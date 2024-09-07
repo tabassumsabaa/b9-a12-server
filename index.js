@@ -3,6 +3,7 @@ const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 const { ObjectId } = require('mongodb');
 
@@ -36,6 +37,8 @@ async function run() {
         const reportCollection = client.db("survey").collection("reports");
         const responseCollection = client.db("survey").collection("responses");
         const surveyorCollection = client.db("survey").collection("surveyors");
+        const paymentCollection = client.db("survey").collection("payments");
+
 
         //jwt related api
         app.post('/jwt', async (req, res) => {
@@ -44,19 +47,19 @@ async function run() {
             res.send({ token });
         })
         //middleware
-        const verifyToken =( req, res, next)=>{
+        const verifyToken = (req, res, next) => {
             console.log("insite vt", req.headers.authorization);
             if (!req.headers.authorization) {
-                return res.status(401).send({massage: 'Forbidden Access'});
+                return res.status(401).send({ massage: 'Forbidden Access' });
             }
             const token = req.headers.authorization.split(' ')[1];
-            jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) =>{
+            jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
                 if (err) {
-                  return res.status(401).send({message: 'Forbidden Access'})              
+                    return res.status(401).send({ message: 'Forbidden Access' })
                 }
                 req.decoded = decoded;
                 next();
-            })            
+            })
         }
         // user related api
         app.get("/users", verifyToken, async (req, res) => {
@@ -64,32 +67,32 @@ async function run() {
             res.send(result);
         });
         // surveyor true
-        app.get("/users/surveyor/:email", verifyToken, async(req, res) =>{
+        app.get("/users/surveyor/:email", verifyToken, async (req, res) => {
             const email = req.params.email;
             if (email !== req.decoded.email) {
-                return res.status(403).send({message: 'Unauthorized access'}) 
+                return res.status(403).send({ message: 'Unauthorized access' })
             }
-            const query = {email: email};
+            const query = { email: email };
             const user = await userCollection.findOne(query);
             let surveyor = false;
             if (user) {
                 surveyor = user?.role === 'surveyor';
             }
-            res.send({surveyor})
+            res.send({ surveyor })
         });
         // admin true
-        app.get("/users/admin/:email", verifyToken, async(req, res) =>{
+        app.get("/users/admin/:email", verifyToken, async (req, res) => {
             const email = req.params.email;
             if (email !== req.decoded.email) {
-                return res.status(403).send({message: 'Unauthorized access'}) 
+                return res.status(403).send({ message: 'Unauthorized access' })
             }
-            const query = {email: email};
+            const query = { email: email };
             const user = await userCollection.findOne(query);
             let admin = false;
             if (user) {
                 admin = user?.role === 'admin';
             }
-            res.send({admin});
+            res.send({ admin });
         });
         app.post("/users", async (req, res) => {
             const user = req.body;
@@ -107,7 +110,7 @@ async function run() {
             const filter = { _id: new ObjectId(id) };
             const updateDoc = {
                 $set: {
-                    role: 'admin' 
+                    role: 'admin'
                 }
             }
             const result = await userCollection.updateOne(filter, updateDoc);
@@ -255,6 +258,41 @@ async function run() {
 
             res.status(200).send({ message: "Survey submitted successfully" });
         });
+
+        // Payments related API
+        app.get('/payments', async (req, res) => {
+            const payments = await paymentCollection.find().toArray();
+            res.send(payments);
+        })
+
+        //payment intend
+        app.post('/create-payment-intent', async (req, res) => {
+            const { price } = req.body;
+            const amount = parseInt(price * 100);
+            console.log(amount, 'ammount inside the intent');
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ['card'],
+            });
+            res.send({
+                clientSecret: paymentIntent.client_secret
+            })
+        });
+
+        // Endpoint to save payment information
+        app.post('/payments', async (req, res) => {
+            const payment = req.body;  // Payment information from the client
+            try {
+                const result = await paymentCollection.insertOne(payment);
+                res.send(result);
+            } catch (error) {
+                console.error("Error saving payment:", error);
+                res.status(500).send({ error: "Internal Server Error" });
+            }
+        });
+
 
 
 
